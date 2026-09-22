@@ -45,3 +45,15 @@ The active Conda environment also has an editable ACAC installation at
 Replace shell `cp -rf` calls with `shutil.copy2` while preserving the existing
 newest-to-oldest rotation order. This supports Windows and makes copy failures
 visible to Python instead of silently continuing after a shell error.
+
+## D008: Keep a standalone research repository
+
+The modified ACAC source is included under `acac/acac/` in the project Git
+repository. The official source is attributed in `upstream/ACAC_SOURCE.md`.
+Experiment outputs, bundled official results, paper PDFs, and the original
+checkout Git metadata remain local and outside version control. The GitHub
+remote is `https://github.com/SSSiseven/acac.git`; no push was performed.
+
+Reason:
+A single clone can run the modified ACAC source without depending on an
+unpublished submodule commit.
