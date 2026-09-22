@@ -1,0 +1,30 @@
+# Local experiments and generated artifacts
+/data/
+/result/
+/artifacts/
+/acac/acac/icml25_result/
+
+# Research papers are kept locally; cite their public sources in documentation.
+/references/*.pdf
+
+# Preserved Git metadata from the imported ACAC checkout
+/upstream/acac-git-backup/
+
+# Python and editor outputs
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+.idea/
+.vscode/
+
+# Run artifacts outside data/, if any
+*.tar
+*.pt
+*.pth
+*.pickle
+*.pkl
+*.log
