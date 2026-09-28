@@ -57,3 +57,28 @@ remote is `https://github.com/SSSiseven/acac.git`; no push was performed.
 Reason:
 A single clone can run the modified ACAC source without depending on an
 unpublished submodule commit.
+
+## D009: Apply seed 0 in the ACAC entry point
+
+Treat a configured seed as present when it is not `None`, including integer 0.
+This changes only the truthiness guard in `scripts/acac_main.py`; it leaves
+nonzero seed behavior and the existing worker seed offsets unchanged.
+
+Reason:
+The official README documents `--seed=0`, and released ACAC result files
+include `ovcA7/acac/0.csv` and `ovcAR7/acac/0.csv`. The old guard skipped
+Python, NumPy, and PyTorch main-process seeding for zero.
+
+## D010: Interpret the original ACAC budget in environment timesteps
+
+Preserve the original calculation `max_timesteps = env_terminate_step *
+total_epi` for ACAC and all later comparison methods. Compare learning curves
+on environment timesteps. Treat the logged `Episodes` value as a diagnostic,
+not the training budget.
+
+Reason:
+Successful policies terminate `ovcA7` episodes much earlier than the 200-step
+limit, so `total_epi=100000` produced roughly 343k to 374k completed episodes
+before reaching 20M steps. The released official result CSVs also terminate at
+approximately 20M timesteps. Changing the stop condition to 100k completed
+episodes would shorten strong-policy runs and break reproduction and fairness.

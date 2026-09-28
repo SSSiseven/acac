@@ -33,7 +33,7 @@ algs = {
 def main(args):
 
     # set seed
-    if args.seed:
+    if args.seed is not None:
         random.seed(args.seed)
         np.random.seed(args.seed)
         torch.manual_seed(args.seed)
