@@ -141,3 +141,31 @@ Outputs:
 The aggregation interpolates each seed by environment timesteps on a 40,000-step
 grid, then reports the mean, sample standard deviation, standard error, and a
 Student-t 95% confidence interval for three seeds. It does not edit source CSVs.
+
+## Stage 2 task-graph semantics (2026-09-28)
+
+Implemented without connecting to training:
+- `acac/acac/acac/acac_marl/task_graph/builder.py`: deterministic NumPy-only
+  graph construction and feasibility masks;
+- `acac/acac/acac/acac_marl/task_graph/v1_adapter.py`: leakage-free decoder for
+  V1 macro observations;
+- `tests/test_task_graph_builder.py`: all ten required state scenarios plus
+  empty/complete plate and hidden-state validation;
+- `tests/test_task_graph_v1_adapter.py`: real `ovcA7`, deterministic `ovcAR7`,
+  and visible co-location decoding checks.
+
+Validation command from the project root:
+
+`C:\Users\705\.conda\envs\acac\python.exe -m unittest discover -s tests -p "test_task_graph*.py" -v`
+
+Result: 15 tests passed in 0.029 seconds. The Gym deprecation message is emitted
+by the unchanged dependency and is not a test failure. No training was run.
+
+The real `ovcA7` reset check found executable tasks by agent:
+- agent 0: `wait`;
+- agent 1: `wait`;
+- agent 2: `get:lettuce`, `get:onion`, `get:tomato`, `wait`.
+
+This demonstrates that the documented hard visibility mask plus the initial six
+task types omits the original directional exploration actions and can deadlock.
+Neural integration is paused pending an explicit semantic resolution.

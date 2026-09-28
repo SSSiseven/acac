@@ -82,3 +82,28 @@ limit, so `total_epi=100000` produced roughly 343k to 374k completed episodes
 before reaching 20M steps. The released official result CSVs also terminate at
 approximately 20M timesteps. Changing the stop condition to 100k completed
 episodes would shorten strong-policy runs and break reproduction and fairness.
+
+## D011: Build task graphs from egocentric observable state
+
+The pure builder accepts decoded immutable observations and static metadata,
+not an Overcooked environment instance. Hidden entities carry IDs and types but
+no position or dynamic state. A V1 adapter reconstructs only relationships that
+are visible through co-located observation slots. Teammate readiness and current
+macro action are unknown unless they belong to the perspective robot.
+
+Reason:
+Reading `env.agent`, `env.knife`, or other live environment objects would expose
+state outside the actor's local macro observation and invalidate decentralized
+execution.
+
+## D012: Pause neural integration at the exploration-task conflict
+
+Do not connect the current six-type task graph to ACAC training yet. With hard
+visibility masks and no movement task, real initial observations can leave an
+agent with Wait as its only action, and Wait cannot reveal new targets.
+
+Reason:
+The original V1 policy has four primitive movement macros in addition to the
+semantic macros. Removing those actions changes reachability and can deadlock
+the task policy. The task vocabulary or visibility rule needs an explicit
+project decision before TG-ACAC-NoDependency is implemented.

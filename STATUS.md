@@ -2,46 +2,46 @@
 
 ## Current phase
 
-Stage 1 complete. Ready to begin Stage 2 task-graph semantics.
+Stage 2 task-graph semantics: pure builder implemented and tested; neural
+integration is paused at an environment/specification conflict.
 
 ## Completed
 
-- Stage 0 read-only audit and minimal modification plan.
-- Windows-safe project-local output paths, timestamps, and checkpoint rotation.
-- Seed 0 main-process initialization fix with regression coverage.
-- ACAC smoke test and timed GPU/disk calibration on `ovcA7`.
-- Full ACAC `ovcA7` baseline for seeds 0, 1, and 2 at the official 20M-step budget.
-- Three-seed `Eval/ReturnAverage` aggregation and mean/95% CI curve.
+- Stage 0 audit.
+- Stage 1 three-seed ACAC `ovcA7` reproduction at the official 20M-step budget.
+- Leakage-free immutable task-graph input contract.
+- Pure NumPy `TaskGraphBuilder` with all required output tensors.
+- V1 local macro-observation decoder for `ovcA7` and `ovcAR7`.
+- Ten required semantic scenarios plus additional plate, leakage, real-reset,
+  and random-reset tests; 15 task-graph tests pass.
 
 ## Verified
 
-- All three baseline runs exceeded 20,000,000 environment timesteps and saved final checkpoints.
-- `variant.json` records seeds 0, 1, and 2 and identical training/evaluation settings.
-- No NaN or Inf values were found in any baseline `progress.csv`.
-- Final returns are consistent with the official released ACAC results.
-- No baseline Python training processes remain active.
+- Actual V1 action indices and macro termination behavior drive task mapping.
+- Hidden targets expose neither location nor dynamic state and are infeasible.
+- Busy agents receive no new task decision.
+- Wait prevents an empty masked-softmax row for ready agents.
+- No task-graph or neural code has been connected to baseline ACAC training.
+
+## Current blocker
+
+The specification masks locally invisible targets and defines no exploration
+or movement task. The real `ovcA7` initial observation gives agents 0 and 1 only
+Wait; after agent 2 picks an ingredient, knives may remain invisible. Since Wait
+does not change observation, the six-type graph can deadlock. The original
+environment exposes `right/down/left/up`, so dropping them changes reachability.
+
+## Recommended resolution
+
+Add four directional Explore/Move task nodes mapped to the unchanged primitive
+movement macros. Their feasibility should use the perspective robot's position
+and static map topology, without hidden dynamic entity locations. Keep the six
+specified semantic task types and Wait unchanged. This is the smallest option
+that preserves local observability and the original executor/action coverage.
 
 ## Not completed
 
-- Pure-function `TaskGraphBuilder` and its ten required scenario tests.
-- TG-ACAC-NoDependency and TG-ACAC.
-- ACAC-MLP parameter-matched control.
-- `ovcAR7` pilot and later formal experiments.
-
-## Current risks and information gaps
-
-- The original option `total_epi` defines `env_terminate_step * total_epi`
-  environment steps; it is not a strict episode count. This behavior must be
-  preserved for fair comparison.
-- `Eval/NumDeliveryAverage` remains zero because the runner expects an info key
-  that the current Overcooked wrapper does not provide. Returns are valid, but
-  delivery-count reporting must be repaired before the pilot metrics are used.
-- A leakage-free hard feasibility mask cannot use hidden global state. Stage 2
-  must derive graph fields from the acting agent's observable state and static
-  environment metadata only.
-
-## Next action
-
-Begin Stage 2 by freezing the task-graph input contract from actual environment
-objects and observations. Implement the pure `TaskGraphBuilder` and the ten
-required scenario tests before connecting any graph encoder to training.
+- Resolution and tests for exploration semantics.
+- TG-ACAC-NoDependency neural integration.
+- Full TG-ACAC dependency propagation.
+- ACAC-MLP and pilot experiments.
