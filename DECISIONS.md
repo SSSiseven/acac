@@ -48,7 +48,7 @@ visible to Python instead of silently continuing after a shell error.
 
 ## D008: Keep a standalone research repository
 
-The modified ACAC source is included under `acac/acac/` in the project Git
+The modified ACAC source is included under `acac/` in the project Git
 repository. The official source is attributed in `upstream/ACAC_SOURCE.md`.
 Experiment outputs, bundled official results, paper PDFs, and the original
 checkout Git metadata remain local and outside version control. The GitHub
@@ -107,3 +107,148 @@ The original V1 policy has four primitive movement macros in addition to the
 semantic macros. Removing those actions changes reachability and can deadlock
 the task policy. The task vocabulary or visibility rule needs an explicit
 project decision before TG-ACAC-NoDependency is implemented.
+
+## D013: Flatten the vendored ACAC source to one `acac` directory
+
+Move the upstream project files and Python package contents from the former
+three-level repeated hierarchy into the repository's single `acac/` directory.
+Keep the public `acac.*` import namespace by mapping that directory as the
+`acac` package in `setup.py`, and make the entry point add the research
+repository root to `sys.path`.
+
+Reason:
+The repeated directory name obscured source and working-directory locations.
+One directory makes paths unambiguous while retaining the original import API,
+training entry point, environment dynamics, rewards, macro actions, and
+algorithm behavior.
+
+
+## D014: Add one Explore task type with four directional instances
+
+User approved the recommended resolution of D012. Create four nodes sharing
+TaskType.EXPLORE, mapped to original right/down/left/up macros. Encode
+direction with a four-way one-hot feature. Use robot position and static
+walkable_positions metadata for feasibility. Absent topology masks Explore.
+Do not read positions of entities outside local observation.
+
+Reason: directional movement allows the robot to reveal invisible targets
+without changing the original environment or macro executor. Explore is the
+task type; each direction is a concrete task-node instance. No exploration
+reward or new low-level navigation is introduced. The initial action-coverage
+blocker is resolved; success of a learned policy remains to be tested.
+
+
+## D015: Pause Stage 3 on missing retrieval and assembly operations
+
+Original V1 get-ingredient macros also retrieve chopped food from a knife.
+Get-plate macros can add chopped food to a partial plate. Current builder
+completion rules mask both operations. Fixed-state execution verified
+original-macro success against a false robot-task mask for both cases.
+
+Following the project stop-on-semantic-conflict rule, pause neural integration.
+Proposed resolution, not implemented: distinguish initial acquisition from
+post-chop retrieval and plate assembly, retain original macro mapping, and
+separate milestone completion from reusable interaction feasibility.
+Add complete-chain regression coverage before training integration.
+
+
+## D016: Resolve retrieval and assembly with two explicit task types
+
+User approved CollectChoppedIngredient and AddToPlate. Add three collection
+instances and six ingredient/plate assembly instances for the V1 recipe.
+Use original get-ingredient and get-plate macros; retain raw-acquisition tasks
+as separate milestones. A plate with contents is not considered unavailable
+for empty-hand acquisition. Chop requires empty hands.
+
+Original get-plate execution deposits a chopped ingredient and then retrieves
+the plate. The graph therefore supports subsequent direct collection of
+other chopped food into a held partial plate, with another robot cooking.
+Dependency edges describe alternative knives and plates rather than mandatory
+AND prerequisites. Feasibility remains based on locally observable state.
+
+Validation: 24 unit tests pass, including a full original-environment
+cooperative delivery chain. This resolves D015; policy learning remains
+unverified. Original environment, rewards, navigation, and ACAC are unchanged.
+
+
+## D017: Store selected task indices for the unchanged PPO learner
+
+The TG controller samples a task node and maps it to an original macro action.
+The TG runner validates this mapping and replaces only the actor action index
+in stored experience with the task index. Busy robots retain the last selected
+task while the original worker continues the macro. PPO therefore optimizes
+the exact selected-task likelihood, including tasks sharing one macro action.
+The original buffer schema, critic inputs, asynchronous GAE, start/end filters,
+and PPO update formulas are reused.
+
+Actor graphs are deterministically rebuilt from recorded local observations.
+Unknown current-action and duration graph features retain contract defaults;
+they are not filled from live environment state. The original GRU retains its
+input dimension and ready-only update rules. Padding selects only Wait and
+uses finite masked log-probabilities to avoid inf-times-zero in original PPO.
+
+The implementation uses separate TG actor/controller/runner classes and an
+ACAC construction factory hook whose defaults remain MAC and EnvsRunner.
+Stage 3 supports V1 map A only; unsupported maps and obs_last_action=True
+fail explicitly. V0 scale and map B coverage remain subsequent work.
+
+
+## D018: Add one task-dependency message step after NoDependency validation
+
+NoDependency completed its shape/mask/gradient tests and a 100-episode
+(20,000-step) ovcA7 smoke before dependency propagation was enabled.
+Full TG uses one predecessor-to-successor message step. Each message combines
+the predecessor embedding with observable dependency-edge features. Active
+messages are degree-normalized and added to the successor embedding before
+robot-task scoring. The feasibility mask is identical for both TG variants.
+
+tg_dependency_steps=0 is required for tg_acac_no_dependency;
+tg_dependency_steps=1 is required for tg_acac. Both share tg_embed_dim=32
+by default. A removed/disabled message produces the exact original task
+embedding. Tests verify dependence of feasible-task probabilities on messages
+and finite nonzero gradients to the dependency network.
+
+Smoke tests use CPU, four environments, train_freq=4, and evaluation every
+20 episodes with four evaluation episodes. These are short debugging settings
+only; official pilot settings remain unchanged. total_epi continues to mean
+env_terminate_step times total_epi environment-step budget.
+
+
+## D019: Match ACAC-MLP using only its post-GRU decision head (2026-10-08)
+
+Preserve original local observations, GRU, time embedding, 14-way macro policy,
+availability mask, epsilon policy, runner and learner. Enlarge only fc3,
+LayerNorm and fc4. MLP forward never accesses task features or graph masks.
+
+Automatically choose the closest trainable Actor count to full TG using the same
+encoder and tg_embed_dim. The reference uses static architecture metadata only,
+with CPU RNG state preserved; it is never evaluated for MLP action selection.
+mlp_head_width=0 means automatic. Manual widths must satisfy
+mlp_match_tolerance=0.01. Current ovcA7/ovcAR7 width is 126.
+
+Per Actor: MLP 14,700 vs full TG 14,688. Three-Actor difference is 36.
+Target copies and frozen embeddings are excluded. No dummy parameters.
+NoDependency retains its naturally smaller count without the dependency module.
+The new algorithm/controller reuse the existing construction hook; original
+ACAC models, critic, environment, macros, buffer, PPO and GAE remain unchanged.
+Matching currently uses the static V1 map-A contract.
+
+## D020: Profile common inputs and explicit cache/timing scopes (2026-10-08)
+
+Inference: batch=1, three ready robots, 64 original random-macro rollout
+observations (seed 17), five repeats, actor seed 0, time index 1, epsilon 0.05.
+CPU and synchronized GTX 1050 Ti GPU timings include device transfers,
+graph/cache work, GRU, head, mask and sampling. Cold/warm timings are separate.
+Cache clearing is excluded; warm cache is primed with the entire input pool.
+
+CPU training: identical seed 0, 3,200-step target, n_env=4, train_freq=4,
+eval_freq=8, eval_num_epi=2, and original checkpoint saving. All methods finish
+16 episodes / 3,200 steps. Rate is steps / sum(SamplingTime+TrainingTime).
+Wall rate includes setup, evaluation and saves. This is one short cost run per
+method; it is not a learning comparison or precise long-run forecast.
+GPU training throughput/memory remain unmeasured.
+
+The initial profiling command used an unsupported max_checkpoint CLI option;
+it was rejected before training. Remove the profiling option and retain logs,
+rather than changing original parser/saving defaults. The initial hand estimate
+of MLP width 131 was corrected to measured nearest width 126 in the test.

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import numpy as np
 
-SOURCE_ROOT = Path(__file__).resolve().parents[1] / "acac" / "acac"
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE_ROOT))
 
 from acac.acac_marl.task_graph import (  # noqa: E402
@@ -36,6 +36,9 @@ ACTIONS = (
 )
 
 
+WALKABLE_A7 = tuple((x, y) for x in range(1, 6) for y in range(1, 6))
+
+
 def base_entities():
     return (
         EntityObservation("tomato", "ingredient", (1, 1), ingredient_type="tomato"),
@@ -60,6 +63,7 @@ class TaskGraphBuilderScenarios(unittest.TestCase):
                 grid_shape=(7, 7),
                 recipe_ingredients=("tomato", "lettuce", "onion"),
                 macro_action_names=ACTIONS,
+                walkable_positions=WALKABLE_A7,
             )
         )
         self.robot = RobotObservation(0, (3, 3))
@@ -69,22 +73,27 @@ class TaskGraphBuilderScenarios(unittest.TestCase):
     def index(graph, task_id):
         return graph.task_ids.index(task_id)
 
-    @staticmethod
-    def status(graph, index):
-        start = 6 + 6
+    def status(self, graph, index):
+        start = self.builder.task_type_feature_dim + len(
+            self.builder.metadata.ingredient_vocabulary
+        )
         return TaskStatus(int(np.argmax(graph.task_features[index, start : start + 3])))
 
     def test_episode_initial_state(self):
         graph = self.builder.build((self.robot,), self.entities)
         self.assertEqual(graph.robot_features.shape, (1, self.builder.robot_feature_dim))
-        self.assertEqual(graph.task_features.shape, (19, self.builder.task_feature_dim))
-        self.assertEqual(graph.robot_task_edge_features.shape, (1, 19, 8))
-        self.assertEqual(graph.task_dependency_edge_index.shape, (2, 20))
-        self.assertEqual(graph.task_dependency_edge_features.shape, (20, 3))
+        self.assertEqual(graph.task_features.shape, (32, self.builder.task_feature_dim))
+        self.assertEqual(graph.robot_task_edge_features.shape, (1, 32, 8))
+        self.assertEqual(graph.task_dependency_edge_index.shape, (2, 32))
+        self.assertEqual(graph.task_dependency_edge_features.shape, (32, 3))
         self.assertEqual(graph.task_to_macro_action[self.index(graph, "get:tomato")], 1)
         self.assertEqual(graph.task_to_macro_action[self.index(graph, "go:tomato:knife1")], 6)
         self.assertEqual(graph.task_to_macro_action[self.index(graph, "chop:tomato:knife1")], 9)
         self.assertEqual(graph.task_to_macro_action[self.index(graph, "deliver:recipe")], 8)
+        self.assertEqual(graph.task_to_macro_action[self.index(graph, "explore:right")], 10)
+        self.assertEqual(graph.task_to_macro_action[self.index(graph, "explore:down")], 11)
+        self.assertEqual(graph.task_to_macro_action[self.index(graph, "explore:left")], 12)
+        self.assertEqual(graph.task_to_macro_action[self.index(graph, "explore:up")], 13)
         self.assertEqual(graph.task_to_macro_action[self.index(graph, "wait")], 0)
         self.assertTrue(graph.robot_task_mask[0, self.index(graph, "get:tomato")])
         self.assertFalse(graph.robot_task_mask[0, self.index(graph, "go:tomato:knife1")])
@@ -195,17 +204,55 @@ class TaskGraphBuilderScenarios(unittest.TestCase):
         graph = self.builder.build((robot,), self.entities)
         self.assertFalse(graph.robot_task_mask.any())
 
-    def test_wait_is_only_fallback_when_all_productive_tasks_are_unavailable(self):
+    def test_wait_is_only_fallback_when_all_other_tasks_are_unavailable(self):
+        builder = TaskGraphBuilder(
+            replace(self.builder.metadata, walkable_positions=((3, 3),))
+        )
         robot = replace(
             self.robot,
             held_object_id="unusable",
             held_object_kind="ingredient",
         )
-        graph = self.builder.build((robot,), self.entities)
+        graph = builder.build((robot,), self.entities)
         wait = self.index(graph, "wait")
-        productive = np.delete(graph.robot_task_mask[0], wait)
-        self.assertFalse(productive.any())
+        non_wait = np.delete(graph.robot_task_mask[0], wait)
+        self.assertFalse(non_wait.any())
         self.assertTrue(graph.robot_task_mask[0, wait])
+
+    def test_explore_nodes_are_directional_instances_of_one_task_type(self):
+        graph = self.builder.build((self.robot,), self.entities)
+        direction_start = (
+            self.builder.task_type_feature_dim
+            + len(self.builder.metadata.ingredient_vocabulary)
+            + 3
+            + 8
+        )
+        for direction_index, direction in enumerate(self.builder.DIRECTION_NAMES):
+            task_index = self.index(graph, f"explore:{direction}")
+            self.assertEqual(graph.task_types[task_index], int(TaskType.EXPLORE))
+            self.assertTrue(graph.robot_task_mask[0, task_index])
+            expected = np.zeros(4, dtype=np.float32)
+            expected[direction_index] = 1.0
+            np.testing.assert_array_equal(
+                graph.task_features[task_index, direction_start : direction_start + 4],
+                expected,
+            )
+
+    def test_explore_mask_uses_static_walkable_cells(self):
+        robot = replace(self.robot, position=(1, 1))
+        graph = self.builder.build((robot,), self.entities)
+        self.assertTrue(graph.robot_task_mask[0, self.index(graph, "explore:right")])
+        self.assertTrue(graph.robot_task_mask[0, self.index(graph, "explore:down")])
+        self.assertFalse(graph.robot_task_mask[0, self.index(graph, "explore:left")])
+        self.assertFalse(graph.robot_task_mask[0, self.index(graph, "explore:up")])
+
+    def test_explore_is_masked_when_static_topology_is_not_supplied(self):
+        builder = TaskGraphBuilder(
+            replace(self.builder.metadata, walkable_positions=None)
+        )
+        graph = builder.build((self.robot,), self.entities)
+        explore = graph.task_types == int(TaskType.EXPLORE)
+        self.assertFalse(graph.robot_task_mask[0, explore].any())
 
     def test_locally_invisible_target_has_no_location_or_executable_edge(self):
         entities = update_entities(
@@ -216,7 +263,11 @@ class TaskGraphBuilderScenarios(unittest.TestCase):
         get_tomato = self.index(graph, "get:tomato")
         self.assertTrue(graph.task_mask[get_tomato])
         self.assertFalse(graph.robot_task_mask[0, get_tomato])
-        tail_start = 6 + 6 + 3
+        tail_start = (
+            self.builder.task_type_feature_dim
+            + len(self.builder.metadata.ingredient_vocabulary)
+            + 3
+        )
         self.assertEqual(graph.task_features[get_tomato, tail_start], 0.0)
         np.testing.assert_array_equal(
             graph.task_features[get_tomato, tail_start + 3 : tail_start + 5],

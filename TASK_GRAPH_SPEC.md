@@ -19,8 +19,11 @@ Initial task types:
 - GetPlate(plate_id)
 - GoToKnife(object_id, knife_id)
 - Chop(object_id, knife_id)
+- CollectChoppedIngredient(object_id)
+- AddToPlate(object_id, plate_id)
 - Deliver(recipe_id)
-- Wait(agent_id)
+- Explore(direction): one type, four directional node instances
+- Wait
 
 每个任务节点包含：
 - task_id
@@ -108,32 +111,95 @@ state.
 For the six-entry ingredient vocabulary used by the current public scope:
 
 - robot feature width: 16 (10 base fields plus held-ingredient vocabulary);
-- task feature width: 23 (task type, ingredient, status, visibility,
-  prerequisite/resource state, location, progress, and stable ordinals);
+- task feature width: 30 (nine task types, ingredient, status, visibility,
+  prerequisite/resource state, location, progress, stable ordinals, and
+  a four-way direction encoding);
 - robot-task edge width: 8;
 - dependency-edge width: 3.
 
 For the three-ingredient V1 recipe with two plates and two knives, the builder
-creates 19 nodes: three GetIngredient, two GetPlate, six GoToKnife, six Chop,
-one Deliver, and one Wait. It creates 20 dependency edges. Completed tasks stay
+creates 32 nodes: three GetIngredient, two GetPlate, six GoToKnife, six Chop,
+three CollectChoppedIngredient, six AddToPlate, one Deliver, four Explore
+instances, and one Wait. It creates 32 dependency edges. Completed tasks stay
 in the graph but cannot be selected. Busy robots have no selectable task. Wait
 is the fallback for a ready robot when no productive task is feasible.
 
-## Unresolved exploration conflict
+## Resolved exploration semantics
 
-The hard-mask rule says a target outside local observation is infeasible. The
-initial six task types contain no task mapped to the environment's four
-primitive movement macros. On the real `ovcA7` reset, the leakage-free builder
-finds:
+Explore is one task type with four task-node instances:
+`explore:right`, `explore:down`, `explore:left`, and `explore:up`.
+Each maps directly to the same-named original V1 macro action.
+The term describes the ability to move and reveal targets; it adds no
+novelty reward or guarantee of visiting a new location.
 
-- agent 0 sees delivery and both knives: only Wait is executable;
-- agent 1 sees delivery: only Wait is executable;
-- agent 2 sees the three ingredients: GetIngredient and Wait are executable.
+All four nodes exist in the graph. The robot-task feasibility mask checks
+whether the adjacent destination belongs to static `walkable_positions`
+metadata and whether the robot is ready. If topology is absent, Explore
+edges are masked. Positions of entities outside local observation are never
+used. Dynamic collisions remain handled by the original executor.
 
-After agent 2 obtains an ingredient, a knife can remain outside its radius, so
-GoToKnife is masked and Wait cannot change the observation. This can deadlock
-before any Chop or Deliver task. Training integration must remain paused until
-the task vocabulary covers exploration, or the visibility constraint is
-changed explicitly. Adding four directional Explore/Move nodes mapped to
-`right/down/left/up` is the smallest leakage-free option; allowing hidden target
-positions would violate the actor observation boundary.
+V1 uses coordinate deltas right=(0,1), down=(1,0), left=(0,-1), up=(-1,0).
+For deterministic ovcA7 reset:
+
+- agent 0: right/down/left feasible, up masked;
+- agent 1: right/left/up feasible, down masked;
+- agent 2: right/down/left feasible, up masked.
+
+The masked direction points to a boundary counter. Moving changes position,
+so the feasible subset may change on subsequent decisions. Explore has no
+task-dependency edges; the graph has 32 dependency edges after the assembly extension.
+
+
+## Retrieval and assembly semantics (approved and implemented)
+
+CollectChoppedIngredient has one instance per recipe ingredient. It maps to
+the same original get-ingredient macro. It requires visible chopped food that
+is neither held by a robot nor already inside a plate. An empty-handed robot
+can retrieve it; a robot holding a plate can collect it directly into the
+plate when that ingredient type is absent. It is completed when the food is
+held or contained. Raw acquisition and post-chop retrieval are separate tasks.
+
+AddToPlate has one instance per ingredient/plate pair. It maps to that
+plate's original get-plate macro. The robot must hold the matching chopped
+ingredient; the target plate must be visible, unheld, and lack that ingredient
+type. Completion means the ingredient is inside this particular plate.
+The original macro deposits food and then picks up the partial plate.
+
+GetPlate is reserved for empty-handed acquisition. A nonempty unheld plate
+can still be acquired. Chop requires empty hands so that the original
+interaction actually chops rather than placing a held object.
+
+Dependencies: GetIngredient -> GoToKnife (6), GoToKnife -> Chop (6),
+Chop -> CollectChoppedIngredient (6 alternative knife branches),
+CollectChoppedIngredient -> AddToPlate (6), AddToPlate -> Deliver
+(6 alternative plate branches), and GetPlate -> Deliver (2).
+Incoming alternatives do not imply that both knives or plates must be used.
+Feasibility uses observable state and the exact assembled recipe, not an AND
+over every incoming dependency. Direct collection into a held plate also
+completes the corresponding AddToPlate milestone without selecting it.
+
+A fixed legal V1 fixture verifies a complete cooperative delivery using
+only graph-feasible decisions and the unchanged original macro executor.
+
+
+## Stage 3 neural integration
+
+TaskGraphActor preserves the original MLP/GRU history encoder and time
+embedding. A history query scores task embeddings combined with robot-task
+relation features. Feasibility masking precedes softmax; epsilon exploration
+is uniform over feasible task nodes. Zero padding has only Wait feasible.
+
+The controller samples only for ready robots, maps task IDs to original
+macros, and updates hidden state only on decisions. Busy robots return -1 and
+retain their previous task and hidden state. The TG runner records selected
+task indices in the original actor-action buffer slot and checks their
+correspondence with actual macro execution.
+
+The original critic, memory schema, asynchronous GAE, start/end filtering,
+and PPO formulas are unchanged. Graphs for PPO are rebuilt from recorded
+local observations; unavailable current-action/duration fields retain default
+values rather than reading live hidden environment state.
+
+NoDependency uses tg_dependency_steps=0. Full TG uses one predecessor message
+step, observable edge features, active-edge mean aggregation, and residual
+task updates before robot-task scoring. Both methods use the same mask.

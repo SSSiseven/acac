@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # encoding: utf-8
 from setuptools import setup, find_packages
+PACKAGE_ROOT = 'acac'
+SUBPACKAGES = find_packages(where='.')
+
 
 setup(
     name='acac_marl',
@@ -8,7 +11,8 @@ setup(
     author='Whiyoung Jung, Sunghoon Hong, Deunsol Yoon, Kanghoon Lee, Woohyung Lim', 
     author_email='[whiyoung.jung, sunghoon.hong, dsyoon, kanghoon.lee, w.lim]@lgresearch.ai',
     description='Official code for Agent-Centric Actor-Critic for Multi-Agent Reinforcement Learning (ICML 2025)',
-    packages=find_packages(),
+    packages=[PACKAGE_ROOT] + [f'{PACKAGE_ROOT}.{name}' for name in SUBPACKAGES],
+    package_dir={PACKAGE_ROOT: '.'},
     classifiers=[
         'Programming Language :: Python :: 3',
         'Operating System :: OS Independent',

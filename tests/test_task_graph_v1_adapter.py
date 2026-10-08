@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 
-SOURCE_ROOT = Path(__file__).resolve().parents[1] / "acac" / "acac"
+SOURCE_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SOURCE_ROOT))
 
 from acac.acac_marl.task_graph import (  # noqa: E402
@@ -33,6 +33,7 @@ ACTIONS = (
     "left",
     "up",
 )
+WALKABLE_A7 = tuple((x, y) for x in range(1, 6) for y in range(1, 6))
 LAYOUT = V1MacroObservationLayout(
     grid_shape=(7, 7),
     entity_specs=(
@@ -75,6 +76,7 @@ class V1MacroObservationAdapterTests(unittest.TestCase):
                 grid_shape=(7, 7),
                 recipe_ingredients=("tomato", "lettuce", "onion"),
                 macro_action_names=ACTIONS,
+                walkable_positions=WALKABLE_A7,
             )
         )
         for robot_id, observation in enumerate(observations):
@@ -91,8 +93,15 @@ class V1MacroObservationAdapterTests(unittest.TestCase):
                 if robot.robot_id != robot_id and robot.visible:
                     self.assertIsNone(robot.ready)
             graph = builder.build(robots, entities)
-            self.assertEqual(len(graph.task_ids), 19)
+            self.assertEqual(len(graph.task_ids), 32)
             self.assertEqual(graph.task_to_macro_action[graph.task_ids.index("wait")], 0)
+            explore_indices = [
+                graph.task_ids.index(f"explore:{direction}")
+                for direction in builder.DIRECTION_NAMES
+            ]
+            self.assertTrue(
+                graph.robot_task_mask[robot_id, explore_indices].any()
+            )
 
     def test_real_ovcar7_random_reset_uses_same_observation_contract(self):
         import random
@@ -119,6 +128,7 @@ class V1MacroObservationAdapterTests(unittest.TestCase):
                 grid_shape=(7, 7),
                 recipe_ingredients=("tomato", "lettuce", "onion"),
                 macro_action_names=tuple(env.macroActionName),
+                walkable_positions=WALKABLE_A7,
             )
         )
         for robot_id, observation in enumerate(observations):
@@ -130,7 +140,7 @@ class V1MacroObservationAdapterTests(unittest.TestCase):
             )
             graph = builder.build(robots, entities)
             self.assertEqual(graph.robot_features.shape[1], builder.robot_feature_dim)
-            self.assertEqual(graph.task_features.shape[0], 19)
+            self.assertEqual(graph.task_features.shape[0], 32)
 
     def test_colocation_decodes_complete_plate_held_by_self(self):
         observation = np.zeros(LAYOUT.observation_size, dtype=np.float32)
@@ -165,6 +175,7 @@ class V1MacroObservationAdapterTests(unittest.TestCase):
                 grid_shape=(7, 7),
                 recipe_ingredients=("tomato", "lettuce", "onion"),
                 macro_action_names=ACTIONS,
+                walkable_positions=WALKABLE_A7,
             )
         )
         graph = builder.build(robots, entities)

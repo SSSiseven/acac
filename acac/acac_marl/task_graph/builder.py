@@ -22,6 +22,9 @@ class TaskType(IntEnum):
     CHOP = 3
     DELIVER = 4
     WAIT = 5
+    EXPLORE = 6
+    COLLECT_CHOPPED_INGREDIENT = 7
+    ADD_TO_PLATE = 8
 
 
 class TaskStatus(IntEnum):
@@ -65,6 +68,7 @@ class TaskGraphMetadata:
     grid_shape: Tuple[int, int]
     recipe_ingredients: Tuple[str, ...]
     macro_action_names: Tuple[str, ...]
+    walkable_positions: Optional[Tuple[Tuple[int, int], ...]] = None
     ingredient_vocabulary: Tuple[str, ...] = (
         "tomato",
         "lettuce",
@@ -91,6 +95,7 @@ class _Task:
     target_visible: bool
     position: Optional[Tuple[int, int]]
     progress: float
+    direction: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -115,9 +120,10 @@ class TaskGraphBuilder:
     holds-ingredient, holds-plate, current-action, elapsed-duration, followed
     by a vocabulary one-hot for ingredients held directly or in a plate.
 
-    Task features: six-way task type, ingredient vocabulary one-hot,
+    Task features: nine-way task type, ingredient vocabulary one-hot,
     three-way status, target-visible, prerequisite-satisfied,
-    resource-available, x, y, progress, target ordinal, resource ordinal.
+    resource-available, x, y, progress, target ordinal, resource ordinal,
+    followed by a four-way direction encoding for Explore instances.
 
     Robot-task edge features (8): Manhattan distance, executable,
     target-visible, object-compatible, resource-available,
@@ -130,6 +136,13 @@ class TaskGraphBuilder:
     ROBOT_BASE_FEATURE_DIM = 10
     EDGE_FEATURE_DIM = 8
     DEPENDENCY_FEATURE_DIM = 3
+    DIRECTION_NAMES = ("right", "down", "left", "up")
+    DIRECTION_DELTAS = {
+        "right": (0, 1),
+        "down": (1, 0),
+        "left": (0, -1),
+        "up": (-1, 0),
+    }
 
     def __init__(self, metadata: TaskGraphMetadata):
         width, height = metadata.grid_shape
@@ -139,6 +152,15 @@ class TaskGraphBuilder:
             raise ValueError("recipe_ingredients must not be empty")
         self.metadata = metadata
         self._actions = {name: index for index, name in enumerate(metadata.macro_action_names)}
+        self._walkable_positions = (
+            None
+            if metadata.walkable_positions is None
+            else frozenset(metadata.walkable_positions)
+        )
+        if self._walkable_positions is not None:
+            for position in self._walkable_positions:
+                if not self._position_in_bounds(position):
+                    raise ValueError(f"walkable position is outside grid: {position}")
 
     @property
     def robot_feature_dim(self) -> int:
@@ -146,7 +168,11 @@ class TaskGraphBuilder:
 
     @property
     def task_feature_dim(self) -> int:
-        return 6 + len(self.metadata.ingredient_vocabulary) + 3 + 8
+        return len(TaskType) + len(self.metadata.ingredient_vocabulary) + 3 + 8 + 4
+
+    @property
+    def task_type_feature_dim(self) -> int:
+        return len(TaskType)
 
     def build(
         self,
@@ -309,7 +335,7 @@ class TaskGraphBuilder:
             tasks.append(task)
 
         for plate_number, plate in enumerate(plates, start=1):
-            completed = bool(plate.holder_id or plate.contents or plate.container_id)
+            completed = bool(plate.holder_id or plate.container_id)
             task = self._make_task(
                 task_id=f"get:{plate.entity_id}",
                 task_type=TaskType.GET_PLATE,
@@ -364,6 +390,41 @@ class TaskGraphBuilder:
                 tasks.append(chop_task)
                 dependencies.append((go_index[go_key], chop_index[go_key]))
 
+        collect_index: dict[str, int] = {}
+        add_index: dict[tuple[str, str], int] = {}
+        for ingredient in ingredients:
+            collect_index[ingredient.entity_id] = len(tasks)
+            tasks.append(self._make_task(
+                task_id=f"collect:{ingredient.entity_id}",
+                task_type=TaskType.COLLECT_CHOPPED_INGREDIENT,
+                target=ingredient, ingredient=ingredient, resource=None,
+                macro_action=self._action(f"get {ingredient.ingredient_type}"),
+                status=self._status(
+                    bool(ingredient.holder_id or ingredient.container_id),
+                    ingredient.chopped, episode_done),
+                prerequisite=ingredient.visible and ingredient.chopped,
+                resource_available=ingredient.holder_id is None,
+            ))
+            for knife in knives:
+                dependencies.append((
+                    chop_index[(ingredient.entity_id, knife.entity_id)],
+                    collect_index[ingredient.entity_id]))
+            for plate_number, plate in enumerate(plates, start=1):
+                key = (ingredient.entity_id, plate.entity_id)
+                add_index[key] = len(tasks)
+                tasks.append(self._make_task(
+                    task_id=f"add:{ingredient.entity_id}:{plate.entity_id}",
+                    task_type=TaskType.ADD_TO_PLATE,
+                    target=plate, ingredient=ingredient, resource=plate,
+                    macro_action=self._action(f"get plate {plate_number}"),
+                    status=self._status(
+                        ingredient.container_id == plate.entity_id,
+                        ingredient.chopped, episode_done),
+                    prerequisite=ingredient.visible and ingredient.chopped,
+                    resource_available=plate.holder_id is None,
+                ))
+                dependencies.append((collect_index[ingredient.entity_id], add_index[key]))
+
         assembled_plate = self._assembled_plate(plates)
         delivery = deliveries[0]
         delivered = episode_done or bool(delivery.contents)
@@ -380,10 +441,30 @@ class TaskGraphBuilder:
         )
         deliver_index = len(tasks)
         tasks.append(deliver_task)
-        for index in chop_index.values():
+        for index in add_index.values():
             dependencies.append((index, deliver_index))
         for index in plate_index.values():
             dependencies.append((index, deliver_index))
+
+        for direction in self.DIRECTION_NAMES:
+            tasks.append(
+                _Task(
+                    task_id=f"explore:{direction}",
+                    task_type=TaskType.EXPLORE,
+                    target_id=None,
+                    ingredient_id=None,
+                    ingredient_type=None,
+                    resource_id=None,
+                    macro_action=self._action(direction),
+                    status=TaskStatus.ACTIVE,
+                    prerequisite_satisfied=True,
+                    resource_available=True,
+                    target_visible=True,
+                    position=None,
+                    progress=0.0,
+                    direction=direction,
+                )
+            )
 
         tasks.append(
             _Task(
@@ -493,7 +574,7 @@ class TaskGraphBuilder:
         return np.concatenate((base, held_ingredients))
 
     def _task_features(self, task: _Task, index: int, count: int) -> np.ndarray:
-        type_one_hot = np.zeros(6, dtype=np.float32)
+        type_one_hot = np.zeros(len(TaskType), dtype=np.float32)
         type_one_hot[int(task.task_type)] = 1.0
         ingredient_one_hot = np.zeros(len(self.metadata.ingredient_vocabulary), dtype=np.float32)
         if task.ingredient_type in self.metadata.ingredient_vocabulary:
@@ -520,7 +601,12 @@ class TaskGraphBuilder:
             ],
             dtype=np.float32,
         )
-        return np.concatenate((type_one_hot, ingredient_one_hot, status_one_hot, tail))
+        direction_one_hot = np.zeros(len(self.DIRECTION_NAMES), dtype=np.float32)
+        if task.direction in self.DIRECTION_NAMES:
+            direction_one_hot[self.DIRECTION_NAMES.index(task.direction)] = 1.0
+        return np.concatenate(
+            (type_one_hot, ingredient_one_hot, status_one_hot, tail, direction_one_hot)
+        )
 
     def _robot_task_edge(
         self,
@@ -530,9 +616,13 @@ class TaskGraphBuilder:
         entities: dict[str, EntityObservation],
         episode_done: bool,
     ) -> tuple[np.ndarray, bool]:
-        distance = self._distance(robot.position, task.position)
+        distance = (
+            1.0 / max(1, sum(self.metadata.grid_shape) - 2)
+            if task.task_type == TaskType.EXPLORE
+            else self._distance(robot.position, task.position)
+        )
         compatible = self._object_compatible(robot, task, entities)
-        claimed = any(
+        claimed = task.task_type != TaskType.EXPLORE and any(
             other.robot_id != robot.robot_id
             and other.visible
             and other.ready is False
@@ -551,7 +641,10 @@ class TaskGraphBuilder:
             and not claimed
         )
         if task.task_type == TaskType.CHOP:
-            executable = executable and self._raw_distance(robot.position, task.position) == 1
+            executable = (executable and robot.held_object_kind is None
+                          and self._raw_distance(robot.position, task.position) == 1)
+        if task.task_type == TaskType.EXPLORE:
+            executable = executable and self._explore_destination_is_walkable(robot, task)
         if task.task_type == TaskType.WAIT:
             executable = bool(robot.visible and robot.ready is True and not episode_done)
         duration = distance
@@ -579,17 +672,32 @@ class TaskGraphBuilder:
         entities: dict[str, EntityObservation],
     ) -> bool:
         held_kind = robot.held_object_kind
-        if task.task_type == TaskType.WAIT:
+        if task.task_type in (TaskType.WAIT, TaskType.EXPLORE):
             return True
         if task.task_type == TaskType.GET_INGREDIENT:
             ingredient = entities[task.ingredient_id]
             return held_kind is None or (held_kind == "plate" and ingredient.chopped)
         if task.task_type == TaskType.GET_PLATE:
+            return held_kind is None
+        if task.task_type == TaskType.COLLECT_CHOPPED_INGREDIENT:
+            ingredient = entities[task.ingredient_id]
+            if (not ingredient.visible or not ingredient.chopped
+                    or ingredient.container_id is not None
+                    or ingredient.holder_id is not None):
+                return False
             if held_kind is None:
                 return True
-            if held_kind != "ingredient" or robot.held_object_id not in entities:
-                return False
-            return entities[robot.held_object_id].chopped
+            if held_kind == "plate" and robot.held_object_id in entities:
+                return ingredient.ingredient_type not in entities[robot.held_object_id].contents
+            return False
+        if task.task_type == TaskType.ADD_TO_PLATE:
+            ingredient = entities[task.ingredient_id]
+            plate = entities[task.target_id]
+            return (held_kind == "ingredient"
+                    and robot.held_object_id == ingredient.entity_id
+                    and ingredient.chopped
+                    and plate.holder_id is None
+                    and ingredient.ingredient_type not in plate.contents)
         if task.task_type == TaskType.GO_TO_KNIFE:
             return (
                 held_kind == "ingredient"
@@ -605,6 +713,23 @@ class TaskGraphBuilder:
                 self.metadata.recipe_ingredients
             )
         return False
+
+    def _explore_destination_is_walkable(
+        self, robot: RobotObservation, task: _Task
+    ) -> bool:
+        if robot.position is None or task.direction not in self.DIRECTION_DELTAS:
+            return False
+        delta = self.DIRECTION_DELTAS[task.direction]
+        destination = (robot.position[0] + delta[0], robot.position[1] + delta[1])
+        if not self._position_in_bounds(destination):
+            return False
+        if self._walkable_positions is None:
+            return False
+        return destination in self._walkable_positions
+
+    def _position_in_bounds(self, position: Tuple[int, int]) -> bool:
+        width, height = self.metadata.grid_shape
+        return 0 <= position[0] < width and 0 <= position[1] < height
 
     def _dependency_features(self, source: _Task, target: _Task) -> np.ndarray:
         return np.asarray(

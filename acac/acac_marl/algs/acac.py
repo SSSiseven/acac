@@ -156,7 +156,10 @@ class AgentCentricActorCritic(object):
         self.buffer = [] # To save whole memory
             
         # cretate controller
-        self.controller = MAC(
+        controller_class = kwargs.pop("_controller_class", MAC)
+        runner_class = kwargs.pop("_runner_class", EnvsRunner)
+        controller_options = kwargs.pop("_controller_options", {})
+        self.controller = controller_class(
             self.env, obs_last_action, **actor_params, **critic_params, device=device,
             time_emb=self.time_emb, time_emb_actor=self.time_emb_actor, init_critic=False,
             share_encoder=self.share_encoder, use_attention=self.use_attention, 
@@ -164,9 +167,10 @@ class AgentCentricActorCritic(object):
             value_head=self.value_head, time_emb_alg = self.time_emb_alg,
             time_emb_dim=self.time_emb_dim, max_timestep=env_terminate_step, 
             use_actor_ln=self.use_actor_ln, duplicate=self.duplicate,
+            **controller_options,
         )
         # create parallel envs runner
-        self.envs_runner = EnvsRunner(self.env, n_env, self.controller, self.memory, env_terminate_step, gamma, seed, obs_last_action, trace_len, parallel)
+        self.envs_runner = runner_class(self.env, n_env, self.controller, self.memory, env_terminate_step, gamma, seed, obs_last_action, trace_len, parallel)
         
         # create learner
         self.learner = Learner_ACAC(

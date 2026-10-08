@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import torch
 
-SOURCE_ROOT = Path(__file__).resolve().parents[1] / "acac" / "acac"
+SOURCE_ROOT = Path(__file__).resolve().parents[1] / "acac"
 sys.path.insert(0, str(SOURCE_ROOT))
 from scripts import acac_main  # noqa: E402
 

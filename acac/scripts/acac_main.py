@@ -11,7 +11,7 @@ import wandb
 
 # Prefer the source tree that contains this entry point over another editable
 # installation of acac in the active Python environment.
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 from acac.acac_marl.misc.logging_utils import setup_logger
 from acac.acac_marl.algs import (
@@ -24,8 +24,14 @@ from acac.env import OvercookedMacEnvWrapper
 sys.path.append(os.path.dirname(__file__))
 from params.utils import get_env_params, make_env_name, merge_params
 
+from acac.acac_marl.algs.tg_acac import TaskGraphACAC
+from acac.acac_marl.algs.acac_mlp import MatchedMLPACAC
+
 algs = {      
     'acac': ACAC,
+    'acac_mlp': MatchedMLPACAC,
+    'tg_acac_no_dependency': TaskGraphACAC,
+    'tg_acac': TaskGraphACAC,
     'acac_vanilla': ACAC_Vanilla, 
     'acac_micro_gae': ACAC_Micro_GAE,
 }

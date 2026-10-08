@@ -2,7 +2,7 @@ import os.path as osp
 import os
 from pathlib import Path
 
-PROJECT_DIR = osp.abspath(osp.join(osp.dirname(__file__), '..', '..'))
+PROJECT_DIR = osp.abspath(osp.join(osp.dirname(__file__), '..'))
 
 
 def _data_dir():
