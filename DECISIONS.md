@@ -252,3 +252,61 @@ The initial profiling command used an unsupported max_checkpoint CLI option;
 it was rejected before training. Remove the profiling option and retain logs,
 rather than changing original parser/saving defaults. The initial hand estimate
 of MLP width 131 was corrected to measured nearest width 126 in the test.
+
+
+## D021: Opt-in evaluator diagnostics and delivery repair (2026-10-09)
+
+Use PilotMetricsWrapper outside the existing macro environment. It returns the
+same observations, rewards and terminal flags, adds delivery metadata, and
+keeps scalar diagnostic counters separate from the learner buffer.
+The V1 environment and macro executors remain byte-for-byte unchanged.
+The worker receives shelf_deliveries as expected; get_info transports optional
+episode metrics. Runner records new arrays. Fix logger classification to match
+Agent0/... prefixes, not every key containing Agent, so Train/AgentSteps logs.
+
+Success is the existing correct-dish termination plus matching delivery state;
+neither rewards nor navigation are altered. Historical statistics remain untouched.
+Replay existing seed-0 baseline weights: delivery [0,0] becomes [1,1], while
+returns stay [226.6,226.6] and episode lengths/discounted returns are identical.
+
+Use common local task feasibility for selected-macro invalid rates. TG alone
+also exposes detached raw pre-mask probability mass before epsilon mixing.
+No gradient or policy changes; neural parameter counts are unchanged.
+Resource contention uses centralized state only in the observer.
+Wait ratio is explicit macro waiting, not all nonproductive physical behavior.
+Detailed definitions are in EXPERIMENT_PROTOCOL.md.
+
+Preserve failed diagnostics: empty plate contents are None and caused the first
+observer membership check to fail; fixed observer and added a regression test.
+The next run completed but logger dropped Agent-named counters; fixed logger
+prefix matching. Failed/incomplete logs and CSVs remain in their original paths.
+
+## D022: Common AUC support and short CPU/GPU resource calibration (2026-10-09)
+
+Choose the protocol-permitted midpoint pilot budget of 25%: 10M env steps
+(total_epi=50000). This is a proposed plan; no long pilot is started.
+Use unchanged n_env=8/train_freq=8/eval_freq=200/eval_num_epi=20 for planned runs.
+Short calibration uses target 32*200 steps and eval_freq=32; preserve actual
+step counts if original budget accounting overshoots.
+
+AUC uses a shared recorded interval, with no step-zero invention. Pooled rates
+use raw numerator/denominator counters weighted by actual eval episode counts.
+Pre-mask mass is TG-only and is not directly compared to a 14-macro policy.
+
+Resource calibration includes diagnostics for all methods, CPU/CUDA on the same
+machine, measured training vs process wall time, process-tree RSS, output size,
+and CUDA peak allocated/reserved memory. Extrapolations are planning estimates,
+not confidence bounds; long-run readiness and episode length can change costs.
+
+
+## D023: Shared pilot container and durable outputs (2026-10-10)
+
+Pin official Python 3.9.25 slim-bookworm digest and PyTorch 2.1.0+cu121.
+Use validated direct dependencies instead of the unrelated legacy setup.py bundle.
+Run source from /workspace with headless SDL and one OMP/MKL thread.
+All four algorithms share one image; default CMD prints help.
+ACAC_DATA_DIR=/data will use the n705/fcc RWX PVC. Build context excludes outputs,
+checkpoints, Git metadata and credentials. Direct pins are not a full transitive
+or apt lock: store resolved versions and reuse a single immutable image digest.
+Build-time unit/import gates require no GPU; actual GPU access/timing need runtime
+checks. No image build is claimed because the docker CLI is unavailable.

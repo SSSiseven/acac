@@ -7,7 +7,9 @@ from .models import TaskGraphActor, make_v1_contract
 
 
 class TaskGraphMAC(MAC):
-    def __init__(self, *args, tg_embed_dim=32, dependency_steps=0, **kwargs):
+    def __init__(self, *args, tg_embed_dim=32, dependency_steps=0, record_pilot_metrics=False, **kwargs):
+        self.record_pilot_metrics = record_pilot_metrics
+        self.premask_invalid_mass = None
         self.tg_embed_dim = tg_embed_dim
         self.dependency_steps = dependency_steps
         self.selected_tasks = None
@@ -39,6 +41,7 @@ class TaskGraphMAC(MAC):
         n_envs = obs_history.shape[0]
         if self.selected_tasks is None or len(self.selected_tasks) != n_envs:
             self.selected_tasks = [[-1]*self.n_agent for _ in range(n_envs)]
+        self.premask_invalid_mass = [[None]*self.n_agent for _ in range(n_envs)]
         actions = [[-1]*self.n_agent for _ in range(n_envs)]
         with torch.no_grad():
             for idx, agent in enumerate(self.agents):
@@ -49,10 +52,16 @@ class TaskGraphMAC(MAC):
                 timing = None
                 if self.time_emb_actor:
                     timing = time_seq[ready, idx, -1:].long().to(self.device)
+                actor.collect_diagnostics = self.record_pilot_metrics
                 logits, next_h = actor(
                     obs_history[ready, idx, -1:].to(self.device),
                     h_states[ready, idx].unsqueeze(0), eps=eps,
                     test_mode=test_mode, time_emb=timing)
+                actor.collect_diagnostics = False
+                if self.record_pilot_metrics:
+                    for row,env_idx in enumerate(ready):
+                        self.premask_invalid_mass[env_idx][idx] = float(
+                            actor.last_unmasked_invalid_mass[row,-1])
                 # Account for an external macro availability mask if one exists.
                 for row, env_idx in enumerate(ready):
                     available = avail_actions[env_idx][idx].reshape(-1).to(self.device)

@@ -2,55 +2,67 @@
 
 ## Current phase
 
-Stage 4 ACAC-MLP and four-method profiling are complete.
-Next: prepare Stage 5 metrics and resource estimates before pilot.
+Stage 5 preflight metrics, delivery repair and resource calibration are complete.
+The three-seed pilot is NOT STARTED. Address TG PPO runtime cost before launching.
 
 ## Completed
 
-- Stage 0 audit, Stage 1 baseline, Stage 2 task graphs, Stage 3 TG.
-- Separate acac_mlp algorithm; only original post-GRU head is enlarged.
-- Configurable automatic/manual width and parameter matching tolerance.
-- Four-method parameter, CPU/GPU inference and CPU training cost report.
+- Stages 0-4: baseline reproduction, task graphs, TG variants, matched MLP.
+- Opt-in delivery/local-feasibility/resource-contention/Wait/inference metrics.
+- Detached TG raw pre-mask invalid mass and weighted-counter aggregation.
+- Read-only common-support AUC and 12-run three-seed analysis tool.
+- Eight short CPU/CUDA resource calibrations; proposed 25% pilot plan.
 
 ## Verified
 
-- 35 unit tests pass, including preserved MLP encoder, finite gradients,
-  macro-action outputs and no graph access in MLP forward.
-- MLP width 126: three Actors 44,100 vs full TG 44,064 (0.0817% difference).
-- All Critic counts remain 290,497 trainable parameters.
-- Four ovcAR7 seed-0 runs: each 16 episodes / 3,200 steps, identical settings.
-- All CSV metrics, network and optimizer tensors finite; checkpoints restore.
-- CPU train steps/s: ACAC 237.6; MLP 233.2; NoDependency 98.0; TG 91.6.
-- Common-input CPU/GPU inference measured; warm/cold caches reported.
-- Original environment, macros, models, memory, runner and PPO/GAE hashes unchanged.
+- 45 unit tests pass; original observations, rewards, done and RNG unchanged.
+- Existing baseline replay: delivery [0,0] -> [1,1], unchanged returns
+  [226.6,226.6], episode lengths and discounted returns.
+- All eight successful calibration CSVs and checkpoint/optimizer tensors finite;
+  network weights restore. TG pre-mask columns exist and lie in [0,1].
+- Final CUDA runs include actual EpisodeCount and raw pre-mask mass sums.
+- Original GRU models, controller, environment, macro executors, memory,
+  PPO/GAE learner and ACAC learn loop are unchanged.
+- MLP/TG parameter matching remains verified by existing regression tests.
 
 ## Current blocker
 
-No blocker for completed Stage 4 V1 map-A scope.
+No metric correctness blocker. Operational constraint: current TG PPO costs
+make a 10M-step pilot seed roughly 86-94 hours in short-rate extrapolation.
+Long pilot remains unlaunched pending runtime profiling/optimization or cost review.
+
+## Resources and planning
+
+- Proposed pilot: ovcAR7, four methods, seeds 0/1/2, total_epi=50000:
+  10M-step target per seed (25% of formal 40M); original budget accounting retained.
+- CPU point estimates per seed including eval proxy: ACAC 12.9h, MLP 10.9h,
+  NoDependency 86.2h, full TG 89.6h. GPU is not faster for TG in this calibration.
+- Serial 12-run point estimate about 599 CPU hours (25 days).
+  These are planning extrapolations, not reliable long-run bounds.
+- Full TG CUDA peak allocated 115.1 MiB, reserved 150 MiB; device-free ~3163 MiB.
+  Peaks exclude context/display. Short runs fit GTX 1050 Ti 4 GiB.
+- RSS sum across process tree roughly 3.6-4.2 GiB. Reserve 12 GiB outputs,
+  24 GiB including working headroom. Current disk free ~506 GiB.
+- Prefer serial runs; first profile TG graph preparation/cache work in PPO.
 
 ## Pending verification and limitations
 
-- Short runs establish pipeline/cost, not learning effectiveness.
-- Full TG costs about 2.59x more than ACAC in this CPU throughput check.
-- GTX 1050 Ti small-batch inference is slower than CPU; GPU training
-  throughput and peak training memory remain unverified.
-- Pilot task/conflict/idle metrics and delivery logger correction pending;
-  original baseline CSVs must remain unchanged.
-- Resource estimates required before any run expected above two hours.
-- TG/MLP matching supports V1 map A; map B and V0 scale are pending.
-- TG obs_last_action=True remains unsupported.
-- Original budget and evaluation-interval step accounting unchanged.
+- Real three-seed pilot results, learning advantage and continuation criteria.
+- Long-run timing/memory behavior; current resource forecasts use early-policy runs.
+- AUC aggregation tested with fixtures, not real pilot data.
+- Invalid rate uses local initiation feasibility; contention is target competition;
+  IdleRatio is explicit Wait. Mask-induced zero invalid rate alone is insufficient.
+- Current graph diagnostics/TG/MLP matching support V1 map A; map B/V0 pending.
+- TG obs_last_action=True unsupported.
+- Old baseline delivery CSV fields remain unchanged and are known missing-event data.
+- Some earlier CPU calibration files precede final auxiliary EpisodeCount additions.
 
-## Not completed
+## Evidence
 
-- Stage 5 three-seed ovcAR7 pilot.
-- Stage 6 formal experiments after pilot continuation criteria pass.
-
-## Stage 4 evidence
-
-- analysis/STAGE4_REPORT.md
-- data/stage4/profile.json and summary.csv
-- data/stage4/reuse_audit.json and failures/
+- analysis/PILOT_PREFLIGHT_REPORT.md and analysis/pilot_plan.json
+- data/pilot_preflight/calibration.json and resource_estimates.json
+- data/pilot_preflight/delivery_replay.json, source_reuse.json and failures/
+- EXPERIMENT_PROTOCOL.md: exact metric definitions and AUC/checkpoint rules
 
 ## Repository layout maintenance (2026-09-29)
 
@@ -84,3 +96,17 @@ data/audit/stage3_preflight.json. Await semantic resolution before integration.
 
 
 The Stage 3 preflight findings below are historical; D016 resolves D015.
+
+
+## Container preparation (2026-10-10)
+
+Completed: Dockerfile, .dockerignore, requirements-container.txt, CONTAINER.md.
+Shared Python 3.9.25/PyTorch 2.1.0+cu121 image for all four algorithms; outputs
+at /data. Build gates include unit tests, pip check and CLI help.
+Verified: official base tag/digest exists; direct package pins match local versions.
+Pending: actual Linux build, container smoke and GPU calibration.
+Current blocker: docker executable unavailable in the agent shell.
+Algorithm/environment code unchanged. No upload or long training started.
+
+Local verification: 45 unit tests passed with OMP/MKL threads=1 and dummy SDL;
+git diff --check passed. This is Windows verification, not a Linux image build.

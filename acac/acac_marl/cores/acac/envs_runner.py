@@ -68,6 +68,8 @@ def worker(child, env, gamma, seed, worker_idx):
             
             elif cmd == 'get_info':
                 info = {'r': sum_r, 'l': step, 'R': disc_r, 'n_delivery': n_delivery}
+                if getattr(env,"pilot_metrics_enabled",False):
+                    info["pilot_metrics"]=env.get_episode_metrics()
                 child.send(info)
             
             elif cmd == 'reset':
@@ -121,6 +123,12 @@ class EnvsRunner(object):
         self.n_agent = env.n_agent
         self.trace_len = trace_len
         self.parallel = parallel
+        self.pilot_metrics_enabled = getattr(env, 'pilot_metrics_enabled', False)
+        self.train_pilot_metrics_new = []
+        self.eval_pilot_metrics_new = []
+        self.inference_ms = np.zeros(n_envs)
+        self.premask_sum = np.zeros(n_envs)
+        self.premask_count = np.zeros(n_envs)
         self.batch_idx = 0
         # controllers for getting next action via current actor nn
         self.controller = controller
@@ -223,10 +231,24 @@ class EnvsRunner(object):
         self.train_len_macro_actions_new = [[] for _ in range(self.n_agent)]
         self.eval_len_macro_actions_new = [[] for _ in range(self.n_agent)]
 
+        if self.pilot_metrics_enabled:
+            for prefix,episodes in (("Train",self.train_pilot_metrics_new),
+                                    ("Eval",self.eval_pilot_metrics_new)):
+                if not episodes:
+                    continue
+                diagnostics[f"{prefix}/EpisodeCount"]=np.array([len(episodes)])
+                for key in episodes[0]:
+                    diagnostics[f"{prefix}/{key}"]=np.array([e[key] for e in episodes])
+            self.train_pilot_metrics_new=[]
+            self.eval_pilot_metrics_new=[]
         return diagnostics
     
     def _step(self, eps=0.0, test_mode=False, render=False):
         history, masking, time_seq = self._obs_history_to_tensor()
+        if self.pilot_metrics_enabled:
+            if str(self.controller.device).startswith("cuda"):
+                torch.cuda.synchronize()
+            inference_start=time.perf_counter()
         actions, self.h_states = self.controller.select_action(
             self.last_obses, 
             self.h_states, 
@@ -238,6 +260,16 @@ class EnvsRunner(object):
             attn_mask=masking,
             time_seq=time_seq)
         
+        if self.pilot_metrics_enabled:
+            if str(self.controller.device).startswith("cuda"):
+                torch.cuda.synchronize()
+            self.inference_ms += (time.perf_counter()-inference_start)*1000/self.n_envs
+            telemetry = getattr(self.controller,"premask_invalid_mass",None)
+            if telemetry is not None:
+                for i,values in enumerate(telemetry):
+                    ready_values=[v for v in values if v is not None]
+                    self.premask_sum[i] += sum(ready_values)
+                    self.premask_count[i] += len(ready_values)
         for env_idx, parent in enumerate(self.parents):
             for agent_idx, action in enumerate(actions[env_idx]):
                 if action >= 0:
@@ -276,6 +308,16 @@ class EnvsRunner(object):
                 # collect the return
                 parent.send(("get_info", None))
                 info = parent.recv()
+                if self.pilot_metrics_enabled:
+                    info["pilot_metrics"]["InferenceTimeMs"]=self.inference_ms[idx]/info["l"]
+                self.inference_ms[idx]=0
+                if self.pilot_metrics_enabled and self.premask_count[idx]:
+                    info["pilot_metrics"]["PreMaskInvalidTaskMass"] = (
+                        self.premask_sum[idx]/self.premask_count[idx])
+                    info["pilot_metrics"]["PreMaskDecisionCount"] = self.premask_count[idx]
+                    info["pilot_metrics"]["PreMaskInvalidTaskMassSum"] = self.premask_sum[idx]
+                self.premask_sum[idx]=0
+                self.premask_count[idx]=0
                 if not test_mode:
                     self.memory.scenario_cache += self.episodes[idx]
                     self.memory.flush_buf_cache()
@@ -286,6 +328,8 @@ class EnvsRunner(object):
                     self.train_disc_returns_new.append(info['R'])
                     self.train_epi_len_new.append(info['l'])
                     self.train_n_delivery_new.append(info['n_delivery'])
+                    if self.pilot_metrics_enabled:
+                        self.train_pilot_metrics_new.append(info['pilot_metrics'])
                     for agent_idx in range(self.n_agent):
                         self.train_len_macro_actions_new[agent_idx].append(self.macro_step_count[idx][agent_idx])
                 else:
@@ -296,6 +340,8 @@ class EnvsRunner(object):
                     self.eval_disc_returns_new.append(info['R'])
                     self.eval_epi_len_new.append(info['l'])
                     self.eval_n_delivery_new.append(info['n_delivery'])
+                    if self.pilot_metrics_enabled:
+                        self.eval_pilot_metrics_new.append(info['pilot_metrics'])
                     for agent_idx in range(self.n_agent):
                         self.eval_len_macro_actions_new[agent_idx].append(self.macro_step_count[idx][agent_idx])
 
@@ -321,6 +367,9 @@ class EnvsRunner(object):
                 self._construct_obs_history(self.last_obses[idx], self.last_valids[idx], idx)
 
     def _reset(self):
+        self.inference_ms.fill(0)
+        self.premask_sum.fill(0)
+        self.premask_count.fill(0)
         # send cmd to reset envs
         for parent in self.parents:
             parent.send(("reset", None))

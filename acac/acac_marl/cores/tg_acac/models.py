@@ -75,6 +75,8 @@ class TaskGraphActor(AgentCentricGRUActor):
                        tg_embed_dim), nn.LeakyReLU(),
                 Linear(tg_embed_dim, tg_embed_dim))
         self.scale = math.sqrt(tg_embed_dim)
+        self.collect_diagnostics = False
+        self.last_unmasked_invalid_mass = None
         self._graph_cache = OrderedDict()
         # Shape template for PPO's zero padding; padding has only Wait feasible.
         dummy = np.zeros(layout.observation_size, dtype=np.float32)
@@ -161,4 +163,7 @@ class TaskGraphActor(AgentCentricGRUActor):
         relations = self.relation_encoder(torch.cat(
             (robots.expand(-1, -1, self.output_dim, -1), edges), -1))
         scores = (query.unsqueeze(-2) * (keys + relations)).sum(-1) / self.scale
+        if self.collect_diagnostics:
+            self.last_unmasked_invalid_mass = (
+                scores.detach().softmax(-1) * (~mask)).sum(-1).cpu()
         return masked_task_log_probs(scores, mask, eps, test_mode), next_h

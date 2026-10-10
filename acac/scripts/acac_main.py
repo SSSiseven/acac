@@ -19,6 +19,7 @@ from acac.acac_marl.algs import (
 )
 from acac.acac_marl import PROJECT_DIR, DATA_DIR
 from acac.env import OvercookedMacEnvWrapper
+from acac.acac_marl.diagnostics import PilotMetricsWrapper
 
 
 sys.path.append(os.path.dirname(__file__))
@@ -63,6 +64,9 @@ def main(args):
     env = gym.make(args.env_id, **env_params)
     if args.env_id.startswith("Overcooked-MA"):
         env = OvercookedMacEnvWrapper(env)
+    if args.record_pilot_metrics or args.record_delivery_metrics:
+        env = PilotMetricsWrapper(env,pilot=args.record_pilot_metrics,
+                                  delivery=args.record_delivery_metrics)
     args.env_name = env_params['env_name'] = make_env_name(args)
     args.save_dir = os.path.join(args.exp_name, args.env_name)
     print('exp_name: ', args.exp_name)
@@ -88,8 +92,23 @@ def main(args):
             dir=os.path.join(DATA_DIR, 'wandb', args.exp_name, args.env_name),
         )
 
+    if args.profile_resources and str(args.device).startswith("cuda"):
+        torch.cuda.reset_peak_memory_stats()
     model = algs[args.alg_name](env, **vars(args))
     model.learn()
+    if args.profile_resources:
+        resources = dict(device=args.device)
+        if str(args.device).startswith("cuda"):
+            torch.cuda.synchronize()
+            free,total=torch.cuda.mem_get_info()
+            resources.update(
+                peak_allocated_mib=torch.cuda.max_memory_allocated()/1024**2,
+                peak_reserved_mib=torch.cuda.max_memory_reserved()/1024**2,
+                device_free_mib=free/1024**2,device_total_mib=total/1024**2)
+        folder=os.path.join(DATA_DIR,"resource_profiles",args.exp_name,args.env_name)
+        os.makedirs(folder,exist_ok=True)
+        with open(os.path.join(folder,f"seed_{args.seed}.json"),"w") as handle:
+            json.dump(resources,handle,indent=2)
     if args.wandb:
         wandb.finish()
 
@@ -113,6 +132,8 @@ if __name__ == '__main__':
     for key, value in default_params.items():
         if isinstance(value, list):
             parser.add_argument(f'--{key}', nargs='+', type=type(value[0]), default=None)
+        elif key in ('record_pilot_metrics','record_delivery_metrics','profile_resources'):
+            parser.add_argument(f'--{key}', type=str2bool, default=None)
         else:
             parser.add_argument(f'--{key}', type=type(value), default=None)
 

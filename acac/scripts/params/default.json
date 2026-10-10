@@ -95,5 +95,8 @@
     "tg_embed_dim": 32,
     "tg_dependency_steps": 0,
     "mlp_head_width": 0,
-    "mlp_match_tolerance": 0.01
+    "mlp_match_tolerance": 0.01,
+    "record_pilot_metrics": false,
+    "record_delivery_metrics": false,
+    "profile_resources": false
 }

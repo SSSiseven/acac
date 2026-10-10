@@ -14,5 +14,6 @@ class TaskGraphACAC(AgentCentricActorCritic):
         kwargs["_controller_class"] = TaskGraphMAC
         kwargs["_runner_class"] = TaskGraphRunner
         kwargs["_controller_options"] = dict(
-            tg_embed_dim=tg_embed_dim, dependency_steps=tg_dependency_steps)
+            tg_embed_dim=tg_embed_dim, dependency_steps=tg_dependency_steps,
+            record_pilot_metrics=kwargs.get('record_pilot_metrics',False))
         super().__init__(env, *args, **kwargs)

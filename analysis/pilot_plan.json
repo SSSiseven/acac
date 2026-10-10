@@ -1,0 +1,28 @@
+{
+  "environment": "ovcAR7",
+  "methods": [
+    "acac",
+    "acac_mlp",
+    "tg_acac_no_dependency",
+    "tg_acac"
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "formal_steps": 40000000,
+  "pilot_fraction": 0.25,
+  "total_epi": 50000,
+  "target_steps": 10000000,
+  "n_env": 8,
+  "train_freq": 8,
+  "eval_freq": 200,
+  "eval_num_epi": 20,
+  "record_pilot_metrics": true,
+  "record_delivery_metrics": true,
+  "profile_resources": true,
+  "checkpoint_rule": "Final checkpoint at first evaluation interval reaching the step target",
+  "launch_status": "NOT_STARTED",
+  "device": "choose one common device after cost review"
+}

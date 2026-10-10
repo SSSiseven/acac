@@ -58,3 +58,14 @@ python analysis/profile_stage4.py --train --run-prefix stage4_repeat1 --output-d
 
 This is short cost calibration. Use fresh names for repeats. See
 analysis/STAGE4_REPORT.md; outputs stay in data/. GPU training remains unverified.
+
+
+## Pilot preflight diagnostics
+
+Use --record_pilot_metrics true for common diagnostic metrics and corrected
+delivery counting; --record_delivery_metrics true enables delivery alone.
+Both default false; --profile_resources true records CUDA allocator peaks.
+Metric definitions: EXPERIMENT_PROTOCOL.md. Resource report:
+analysis/PILOT_PREFLIGHT_REPORT.md. Current 10M-step TG pilot seeds are
+estimated at roughly 86-94 hours; profile PPO graph preparation before launch.
+Existing result CSVs remain untouched. Pilot has not started.

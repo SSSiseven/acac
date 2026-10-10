@@ -266,7 +266,7 @@ class AgentCentricActorCritic(object):
 
         runner_diag = self.envs_runner.get_diagnostics()
         for k, v in runner_diag.items():
-            if 'Agent' in k:
+            if k.startswith('Agent'):
                 if 'NMacroActions' in k:
                     logger.record_tabular(k, np.mean(v))
                     wandb_log_stats[k] = np.mean(v)

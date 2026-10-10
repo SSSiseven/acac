@@ -1,0 +1,15 @@
+# Direct dependencies for public Overcooked training and analysis.
+# Match validated local versions; Linux installation is gated by build tests.
+# PyTorch 2.1.0+cu121 is installed separately from its official wheel index.
+# Not a full transitive lockfile: resolved versions are saved inside the image.
+numpy==1.21.5
+gym==0.22.0
+pygame==2.0.3
+transformers==4.28.1
+wandb==0.26.1
+matplotlib==3.8.4
+pandas==1.3.4
+psutil==7.0.0
+python-dateutil==2.9.0.post0
+pillow==11.1.0
+cloudpickle==3.1.2

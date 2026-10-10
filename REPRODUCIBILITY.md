@@ -373,3 +373,88 @@ python analysis/profile_stage4.py --train --run-prefix stage4_repeat1 --output-d
 CPU uses one thread; GPU measurements are inference only. Training rate excludes
 evaluation/saving; process wall includes them. No learning claim, pilot, formal
 training or git push. Pilot metric verification/resource estimates remain pending.
+
+## Pilot preflight diagnostics and resources (2026-10-09)
+
+Repository root, existing acac Conda environment. No long pilot launched.
+
+```powershell
+$env:OMP_NUM_THREADS="1"
+$env:MKL_NUM_THREADS="1"
+python -m unittest discover -s tests -q
+python analysis/calibrate_pilot_resources.py --prefix pilotcal3_261009
+python analysis/verify_delivery_logging.py
+```
+
+45 tests pass. Calibration runs four methods on CPU/CUDA, nominal total_epi=32,
+n_env=8/train_freq=8/eval_freq=32/eval_num_epi=20; record_pilot_metrics,
+record_delivery_metrics and profile_resources all true.
+Target 6,400 steps; CPU MLP reached 12,797 under original interval stop logic.
+Successful exact expanded commands:
+
+```powershell
+python acac/scripts/acac_main.py --alg_name acac --env_name ovcAR7 --exp_name pilotcal3_261009_acac_cpu --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cpu --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name acac_mlp --env_name ovcAR7 --exp_name pilotcal3_261009_acac_mlp_cpu --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cpu --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name tg_acac_no_dependency --env_name ovcAR7 --exp_name pilotcal3_261009_tg_acac_no_dependency_cpu --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cpu --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name tg_acac --env_name ovcAR7 --exp_name pilotcal3_261009_tg_acac_cpu --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cpu --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name acac --env_name ovcAR7 --exp_name pilotcal3_261009_acac_cuda --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cuda --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name acac_mlp --env_name ovcAR7 --exp_name pilotcal3_261009_acac_mlp_cuda --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cuda --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name tg_acac_no_dependency --env_name ovcAR7 --exp_name pilotcal3_261009_tg_acac_no_dependency_cuda --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cuda --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+python acac/scripts/acac_main.py --alg_name tg_acac --env_name ovcAR7 --exp_name pilotcal3_261009_tg_acac_cuda --seed 0 --total_epi 32 --n_env 8 --train_freq 8 --eval_freq 32 --eval_num_epi 20 --device cuda --record_pilot_metrics true --record_delivery_metrics true --profile_resources true
+```
+
+Logs: data/pilot_preflight/pilotcal3_261009_<method>_<device>.log.
+Original CSV paths and CUDA peaks: data/pilot_preflight/calibration.json.
+Time/disk/RAM forecasts: resource_estimates.json; detailed human report:
+analysis/PILOT_PREFLIGHT_REPORT.md.
+Baseline replay uses existing seed-0 checkpoint; no training/old-file writes.
+delivery_replay.json records [0,0] -> [1,1], unchanged return [226.6,226.6],
+lengths and discounted returns. source_reuse.json verifies unchanged core code.
+
+Retained failures: pilotcal_261009_acac_cpu crashed on empty plate containing=None;
+pilotcal2_261009_acac_cpu trained but logger omitted Agent-named raw counters.
+Logs/CSVs retained; explanations in data/pilot_preflight/failures/.
+No raw CSV repair was performed. Fresh names are required for calibration repeats.
+
+Proposed pilot: analysis/pilot_plan.json, 25% formal budget (10M steps/seed).
+Long runs have NOT been started. Current cost warrants TG PPO profiling first.
+
+After all 12 matching pilot runs complete, read-only summary command:
+
+```powershell
+python analysis/summarize_pilot.py --log-root data/log --experiment-prefix pilot_ovcAR7_ --budget-steps 10000000 --output-dir data/pilot_analysis
+```
+
+That command is prepared and unit-tested; no actual pilot aggregation is claimed.
+New diagnostic switches default false and explicitly accept true/false.
+record_pilot_metrics=true includes delivery correction. Historical defaults
+retain original zero-delivery logging behavior. Use the same switches for all methods.
+
+
+## Container preparation (2026-10-10; build commands not executed)
+
+See CONTAINER.md for image checks, short smoke and Harbor upload instructions.
+From repository root:
+
+```console
+docker build -t tg-acac:pilot-v1 .
+```
+
+PREPARED command only: docker version failed because docker is not in the agent
+shell. Linux build/tests and GPU smoke remain pending. No CSV changes.
+Verified base digest: sha256:a02e9c5406c416c504d6c9a1a306ff4080c3173f1008d192f953bd20382a2d5c.
+Resolved Python versions are saved by the Dockerfile under
+/usr/local/share/tg-acac/requirements-resolved.txt. Use one resulting image digest
+across all compared runs; transitive dependencies/apt are not fully locked.
+
+Successful local regression command (existing Windows acac environment):
+
+```powershell
+$env:OMP_NUM_THREADS="1"
+$env:MKL_NUM_THREADS="1"
+$env:SDL_VIDEODRIVER="dummy"
+$env:SDL_AUDIODRIVER="dummy"
+python -m unittest discover -s tests -q
+```
+
+Result: 45 tests passed; git diff --check passed. Not container build evidence.

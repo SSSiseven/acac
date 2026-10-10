@@ -63,6 +63,18 @@ class TGPointerTests(unittest.TestCase):
         self.actor.load_state_dict(state)
         self.assertEqual(tuple(self.actor.dependency_edge_index.shape),(2,32))
 
+    def test_diagnostic_mass_does_not_change_policy_or_gradients(self):
+        x=torch.tensor(self.observations[0]).float().view(1,1,-1)
+        timing=torch.ones(1,1,dtype=torch.long)
+        baseline,_=self.actor(x,time_emb=timing)
+        self.actor.collect_diagnostics=True
+        measured,_=self.actor(x,time_emb=timing)
+        torch.testing.assert_close(baseline,measured)
+        mass=self.actor.last_unmasked_invalid_mass
+        self.assertFalse(mass.requires_grad)
+        self.assertTrue(((mass>=0)&(mass<=1)).all())
+        self.actor.collect_diagnostics=False
+
     def test_epsilon_uniform_is_over_feasible_tasks(self):
         x = torch.tensor(self.observations[0]).float().view(1,1,-1)
         mask = self.actor.graph_tensors(x)[3]
